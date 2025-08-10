@@ -62,8 +62,8 @@ services:
       - VPN_SERVICE_PROVIDER=protonvpn
       #- VPN_TYPE=wireguard
       - TZ=America/New_York 
-      - OPENVPN_USER='l2h7ZWw3lGAFce8t+pmp'
-      - OPENVPN_PASSWORD='2jugelsiNF5qvvx4aseBx5U6uwBZ21Mq'
+      - OPENVPN_USER=''
+      - OPENVPN_PASSWORD=''
       #- WIREGUARD_PRIVATE_KEY=${WIREGUARD_PKEY}
       #- FREE_ONLY=on
       - SERVER_COUNTRIES=United States,
