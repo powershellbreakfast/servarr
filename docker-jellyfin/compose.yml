@@ -1,0 +1,275 @@
+---
+
+#/var/data/storage
+#├── torrents
+#│   ├── books
+#│   ├── movies
+#│   ├── music
+#│   └── tv
+#├── usenet
+#│   ├── incomplete
+#│   └── complete
+#│       ├── books
+#│       ├── movies
+#│       ├── music
+#│       └── tv
+#└── media
+#    ├── books
+#    ├── movies
+#    ├── music
+#    └── tv
+networks:
+  backend:
+    name: backend
+    driver: bridge
+    internal: true #no external access 
+  frontend:
+    name: frontend
+    driver: bridge
+
+services:
+  traefik:
+    container_name: traefik
+    image: traefik:v3.3
+    restart: unless-stopped 
+    networks:
+      - frontend
+    ports:
+      - 80:80
+      - 8080:8080
+      - 443:443
+    volumes:
+      - '/var/data/traefik/config:/etc/traefik'
+      - '/var/data/traefik/letsencrypt:/letsencrypt'
+      - '/var/run/docker.sock:/var/run/docker.sock'
+    environment:
+      CF_DNS_API_TOKEN: ${DNS_API_TOKEN} 
+
+  gluetun:
+    container_name: gluetun
+    image: qmcgaw/gluetun
+    restart: unless-stopped 
+    cap_add:
+      - NET_ADMIN
+#    devices:
+#      - /dev/net/tun:/dev/net/tun
+    ports:
+      - 8888:8888
+      - 8388:8388
+    networks:
+      - frontend
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      #- VPN_TYPE=wireguard
+      - TZ=America/New_York 
+      - OPENVPN_USER='l2h7ZWw3lGAFce8t+pmp'
+      - OPENVPN_PASSWORD='2jugelsiNF5qvvx4aseBx5U6uwBZ21Mq'
+      #- WIREGUARD_PRIVATE_KEY=${WIREGUARD_PKEY}
+      #- FREE_ONLY=on
+      - SERVER_COUNTRIES=United States,
+      - HTTPPROXY=on
+      - SHADOWSOCKS=on
+      - VPN_PORT_FORWARDING=on
+
+  jellyfin:
+    image: jellyfin/jellyfin
+    container_name: jellyfin
+    user: "${JELLYFIN_UID}:${JELLYFIN_GID}"
+    #network_mode: 'host'
+    networks:
+      - frontend
+    volumes:
+      - /var/data/jellyfin/config:/config
+      - /var/data/jellyfin/cache:/cache
+      - /var/data/storage/media/:/media
+    ports: 
+      - 7359:7359
+      # Optional - extra fonts to be used during transcoding with subtitle burn-in
+      #- type: bind
+      #  source: /path/to/fonts
+      #  target: /usr/local/share/fonts/custom
+    restart: 'unless-stopped'
+    # Optional - alternative address used for autodiscovery
+    environment:
+      JELLYFIN_PublishedServerUrl: https://jellyfin.beholdersecurity.com
+    # Optional - may be necessary for docker healthcheck to pass if running in host network mode
+#    extra_hosts:
+#      - 'host.docker.internal:host-gateway'
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.jellyfin-docker-jellyfin.loadbalancer.server.port: '8096'
+
+
+# <BS>https://www.reddit.com/r/docker/comments/14lbvth/servarr_one_docker_compose_file_to_rule_them_all/
+      #
+  bazarr: 
+    image: lscr.io/linuxserver/bazarr:latest 
+    container_name: bazarr 
+    networks: 
+      - frontend 
+    user: "${BAZARR_UID}:${MEDIA_GID}"
+    environment: 
+      TZ: America/New_York 
+      PUID: ${BAZARR_UID}
+      GUID: ${MEDIA_GID}
+      UMASK: '002'
+    volumes: 
+      - /var/data/bazarr/config:/config 
+      - /var/data/storage/media:/media 
+    #ports: 
+    #  - 6767:6767 
+    restart: unless-stopped 
+    labels:
+      traefik.enable: "true"
+  jellyseerr: 
+    image: fallenbagel/jellyseerr:latest  
+    container_name: jellyseerr
+    user: "${JELLYSEERR_UID}:${JELLYSEERR_GID}"
+    networks: 
+      - frontend 
+#  user: 1000:1000 
+    environment: 
+      TZ: America/New_York 
+      UMASK: '002'
+    #ports: 
+    #  - 5055:5055 
+    volumes: 
+      - /var/data/jellyseerr/config:/app/config 
+    restart: unless-stopped 
+    labels:
+      traefik.enable: "true"
+  prowlarr: 
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    networks: 
+      - frontend 
+    user: "${PROWLARR_UID}:${PROWLARR_GID}"
+    environment: 
+      TZ: America/New_York 
+    volumes: 
+      - /var/data/prowlarr/config:/config 
+    #ports: 
+    #  - 9696:9696 
+    restart: unless-stopped 
+    labels:
+      traefik.enable: "true"
+  nzbget:
+    image: lscr.io/linuxserver/nzbget:latest  
+    container_name: nzbget
+    user: "${NZBGET_UID}:${MEDIA_GID}"
+    networks:
+      - frontend
+    environment:
+      TZ: America/New_York 
+      PUID: ${NZBGET_UID}
+      GUID: ${MEDIA_GID}
+      UMASK: '002'
+    volumes:
+      - /var/data/nzbget/config:/config
+      - /var/data/storage/usenet:/usenet
+    #ports:
+    #  - 6789:6789
+    restart: unless-stopped
+    labels:
+      traefik.enable: "true"
+  qbittorrent: 
+    image: lscr.io/linuxserver/qbittorrent:latest  
+    container_name: qbittorrent 
+    user: "${QBITTORRENT_UID}:${MEDIA_GID}"
+    networks: 
+      - frontend 
+    environment: 
+      TZ: America/New_York 
+      WEBUI_PORT: 8080
+      PUID: ${QBITTORRENT_UID}
+      GUID: ${MEDIA_GID}
+      UMASK: '002'
+    volumes: 
+      - /var/data/qbittorrent/config:/config 
+      - /var/data/storage/torrents:/torrents 
+    ports: 
+      - 6881:6881/tcp
+      - 6881:6881/udp
+    restart: unless-stopped 
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.qbittorrent-docker-jellyfin.loadbalancer.server.port: '8080'
+  radarr: 
+    image: lscr.io/linuxserver/radarr:latest  
+    container_name: radarr 
+    user: "${RADARR_UID}:${MEDIA_GID}"
+    networks: 
+      - frontend 
+    environment: 
+      PUID: ${RADARR_UID}
+      GUID: ${MEDIA_GID}
+      TZ: America/New_York 
+      UMASK: '002'
+    volumes: 
+      - /var/data/radarr/config:/config 
+      - /var/data/storage:/storage 
+    #ports: 
+    #  - 7878:7878 
+    restart: unless-stopped 
+    labels:
+      traefik.enable: "true"
+  readarr: 
+    image: lscr.io/linuxserver/readarr:0.4.18-develop
+    container_name: readarr 
+    networks: 
+      - frontend 
+    user: "${READARR_UID}:${MEDIA_GID}"
+    environment: 
+      PUID: ${READARR_UID}
+      GUID: ${MEDIA_GID}
+      TZ: America/New_York 
+      UMASK: '002'
+    volumes: 
+      - /var/data/readarr/config:/config 
+      - /var/data/storage:/storage 
+    #ports: 
+    #  - 8787:8787 
+    restart: unless-stopped 
+    labels:
+      traefik.enable: "true"
+  sonarr: 
+    image: lscr.io/linuxserver/sonarr:latest 
+    container_name: sonarr 
+    networks: 
+      - frontend 
+    user: "${SONARR_UID}:${MEDIA_GID}"
+    environment: 
+      PUID: ${SONARR_UID}
+      GUID: ${MEDIA_GID}
+      TZ: America/New_York 
+      UMASK: '002'
+    volumes: 
+      - /var/data/sonarr/config:/config 
+      - /var/data/storage:/storage 
+    #ports: 
+    #  - 8989:8989 
+    restart: unless-stopped 
+    labels:
+      traefik.enable: "true"
+
+  lidarr: 
+    image: lscr.io/linuxserver/lidarr:latest 
+    container_name: lidarr 
+    networks: 
+      - frontend 
+    user: "${LIDARR_UID}:${MEDIA_GID}"
+    environment: 
+      PUID: ${LIDARR_UID}
+      GUID: ${MEDIA_GID}
+      TZ: America/New_York 
+      UMASK: '002'
+    volumes: 
+      - /var/data/lidarr/config:/config 
+      - /var/data/storage:/storage 
+    #ports: 
+    #  - 8989:8989 
+    restart: unless-stopped 
+    labels:
+      traefik.enable: "true"
+
+

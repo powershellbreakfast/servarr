@@ -1,0 +1,59 @@
+## traefik.yml
+
+# Docker configuration backend
+providers:
+  docker:
+    #defaultRule: "HostRegexp(`{{ normalize .ContainerName }}.(dungland.local|beholdersecurity.com|b3h01d3r.com)`)"
+    #defaultRule: "Host(`{{ normalize .ContainerName }}.beholdersecurity.com`) || Host(`{{ normalize .ContainerName }}.dungland.local`)"
+    defaultRule: "Host(`{{ normalize .ContainerName }}.beholdersecurity.com`)"
+    exposedByDefault: false
+    network: "frontend"
+
+# API and dashboard configuration
+api:
+  insecure: true
+    #dasboard: true
+
+certificatesResolvers:
+  cloudflare-letsencrypt:
+    acme:
+      email: no-reply@beholdersecurity.com
+      storage: /etc/traefik/acme/acme.json
+      dnsChallenge:
+        provider: cloudflare
+        delayBeforeCheck: 0
+        resolvers:
+          - "1.1.1.1:53"
+          - "1.0.0.1:53"
+        propagation:
+          delayBeforeChecks: 2s
+
+entryPoints:
+  web:
+    address: ":80"
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: cloudflare-letsencrypt
+
+log:
+  level: INFO 
+  filePath: "/var/traefik/log/traefik.log"
+  format: "json"
+
+accessLog:
+  filePath: "/var/traefik/log/access.log"
+  format: "json"
+
+metrics:
+  influxDB2:
+    address: http://influx:8086
+    token: ""
+    org: ""
+    bucket: monitoring
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+
+tracing: {}

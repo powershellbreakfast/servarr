@@ -1,0 +1,145 @@
+---
+- name: build jellyfin server
+  hosts: debian-jellyfin
+  become: yes
+
+  tasks: 
+    - name: Create Groups for Users
+      ansible.builtin.group:
+        name: "{{item}}"
+      register: groups_result
+      loop:
+       - media
+       - torrent
+       - usenet
+    - debug:
+        msg: "{{groups_result}}"
+
+    - name: Convert group list to dict
+      set_fact:
+        groups_dict: "{{ groups_result.results | to_dict('name') }}"
+
+    - name: Create Users for containers
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        create_home: false
+        system: false
+        state: present
+        groups: "{{ item.groups }}"
+      register: users
+      loop:
+        - { name: 'radarr', groups: ["media"]}
+        - { name: 'sonarr', groups: ["media"]}
+        - { name: 'lidarr', groups: ["media"]}
+        - { name: 'readarr', groups: ["media"]}
+        - { name: 'jellyseerr', groups: []}
+        - { name: 'prowlarr', groups: []}
+        - { name: 'jellyfin', groups: ['media']}
+        - { name: 'bazarr', groups: ['media']}
+        - { name: 'qbittorrent', groups: []}
+        - { name: 'nzbget', groups: []}
+
+    - name: Convert user list to dict for later use
+      set_fact:
+        # to_dict is custom filter plugin
+        users_dict: "{{ users.results | to_dict('name') }}"
+
+    
+    - name: Configure Folder Structure
+      ansible.builtin.file:
+        state: directory
+        mode: '0775'
+        path: "{{ item.path }}"
+        group: "{{ item.group }}"
+        owner: "{{ item.user }}"
+      loop:
+       - { path: '/var/data/storage/media', group: 'media', user: 'jellyfin'}
+       - { path: '/var/data/storage/media/movies', group: 'media', user: 'jellyfin' }
+       - { path: '/var/data/storage/media/books', group: 'media', user: 'jellyfin' }
+       - { path: '/var/data/storage/media/shows', group: 'media', user: 'jellyfin' }
+       - { path: '/var/data/storage/media/music', group: 'media', user: 'jellyfin' } 
+       - { path: '/var/data/storage/torrents', group: 'media', user: 'qbittorrent' }
+       - { path: '/var/data/storage/torrents/movies', group: 'media', user: 'qbittorrent' }
+       - { path: '/var/data/storage/torrents/books', group: 'media', user: 'qbittorrent'}
+       - { path: '/var/data/storage/torrents/shows', group: 'media', user: 'qbittorrent' }
+       - { path: '/var/data/storage/torrents/music', group: 'media', user: 'qbittorrent' }
+       - { path: '/var/data/storage/torrents/games', group: 'media', user: 'qbittorrent' }
+       - { path: '/var/data/storage/usenet', group: 'media', user: 'nzbget' }
+       - { path: '/var/data/storage/usenet/complete', group: 'media', user: 'nzbget' }
+       - { path: '/var/data/storage/usenet/complete/movies', group: 'media', user: 'nzbget' }
+       - { path: '/var/data/storage/usenet/complete/books', group: 'media', user: 'nzbget' }
+       - { path: '/var/data/storage/usenet/complete/shows', group: 'media', user: 'nzbget' }
+       - { path: '/var/data/storage/usenet/complete/music', group: 'media', user: 'nzbget' }
+       - { path: '/var/data/storage/usenet/incomplete', group: 'media', user: 'nzbget' }
+
+    - name: Configure Folder Structure
+      ansible.builtin.file:
+        state: directory
+        mode: '0775'
+        path: "{{ item.path }}"
+        owner: "{{ item.owner }}"
+        # update thist ot use a group value eventually
+        group: "{{ item.owner }}"
+        recurse: true
+      loop:
+       - { path: '/var/data/radarr/config', owner: 'radarr' }
+       - { path: '/var/data/sonarr/config', owner: 'sonarr' }
+       - { path: '/var/data/lidarr/config', owner: 'lidarr' }
+       - { path: '/var/data/readarr/config', owner: 'readarr' }
+       - { path: '/var/data/prowlarr/config', owner: 'prowlarr' }
+       - { path: '/var/data/bazarr/config', owner: 'bazarr' }
+       - { path: '/var/data/jellyseerr/config', owner: 'jellyseerr' }
+       - { path: '/var/data/jellyfin/config', owner: 'jellyfin' }
+       - { path: '/var/data/qbittorrent/config', owner: 'qbittorrent' }
+       - { path: '/var/data/nzbget/config', owner: 'nzbget' }
+
+
+    - name: create folders
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+       - /home/ansible/docker-jellyfin
+       - /var/data/traefik
+       - /var/data/traefik/config
+
+    - name: Copy files to remote 
+      ansible.builtin.copy:
+        src: "{{ item.src }}" 
+        dest: "{{ item.dest }}"
+      become: yes
+      loop:
+        - { src: 'compose.yml', dest: '/home/ansible/docker-jellyfin/compose.yml' }
+        - { src: '.env', dest: '/home/ansible/docker-jellyfin/.env' }
+        - { src: 'traefik/config/traefik.yml', dest: '/var/data/traefik/config/traefik.yml' }
+
+    - name: run docker-compose
+      community.docker.docker_compose_v2:
+        project_src: '/home/ansible/docker-jellyfin'
+      environment:
+        RADARR_UID: "{{users_dict.radarr.uid}}"
+        READARR_UID: "{{users_dict.readarr.uid}}"
+        LIDARR_UID: "{{users_dict.lidarr.uid}}"
+        SONARR_UID: "{{users_dict.sonarr.uid}}"
+        BAZARR_UID: "{{users_dict.bazarr.uid}}"
+        PROWLARR_UID: "{{users_dict.prowlarr.uid}}"
+        JELLYSEERR_UID: "{{users_dict.jellyseerr.uid}}"
+        JELLYFIN_UID: "{{users_dict.jellyfin.uid}}"
+        NZBGET_UID: "{{users_dict.nzbget.uid}}"
+        QBITTORRENT_UID: "{{users_dict.qbittorrent.uid}}"
+        
+        MEDIA_GID: "{{groups_dict.media.gid}}"
+
+        RADARR_GID: "{{users_dict.radarr.group}}"
+        READARR_GID: "{{users_dict.readarr.group}}"
+        LIDARR_GID: "{{users_dict.lidarr.group}}"
+        SONARR_GID: "{{users_dict.sonarr.group}}"
+        BAZARR_GID: "{{users_dict.bazarr.group}}"
+        PROWLARR_GID: "{{users_dict.prowlarr.group}}"
+        JELLYSEERR_GID: "{{users_dict.jellyseerr.group}}"
+        JELLYFIN_GID: "{{users_dict.jellyfin.group}}"
+        NZBGET_GID: "{{users_dict.nzbget.group}}"
+        QBITTORRENT_GID: "{{users_dict.qbittorrent.group}}"
+      become: yes
+
